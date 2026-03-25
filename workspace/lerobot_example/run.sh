@@ -8,7 +8,9 @@ python_bin="${venv_dir}/bin/python"
 config_path="${code_dir}/workspace/lerobot_example"
 
 if [[ -f "${user_bashrc}" ]]; then
+    set +u
     source "${user_bashrc}"
+    set -u
 fi
 
 if [[ ! -x "${python_bin}" ]]; then
