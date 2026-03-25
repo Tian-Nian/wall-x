@@ -1,23 +1,28 @@
 #!/bin/bash
 set -euo pipefail
 
-# user_bashrc="/mnt/pfs/pg4hw0/niantian/.bashrc"
-code_dir="/mnt/pfs/pg4hw0/niantian/wall-x"
+user_bashrc="/mnt/pfs/pg4hw0/niantian/.bashrc"
+code_dir="/mnt/pfs/pg4hw0/niantian/wall-x_bak"
 venv_dir="${code_dir}/.venv"
+python_bin="${venv_dir}/bin/python"
 config_path="${code_dir}/workspace/lerobot_example"
 
-# if [[ -f "${user_bashrc}" ]]; then
-#     source "${user_bashrc}"
-# fi
+if [[ -f "${user_bashrc}" ]]; then
+    source "${user_bashrc}"
+fi
 
-if [[ -f "${venv_dir}/bin/activate" ]]; then
-    source "${venv_dir}/bin/activate"
-else
+if [[ ! -x "${python_bin}" ]]; then
     echo "Missing virtual environment: ${venv_dir}" >&2
     exit 1
 fi
 
-export CUDA_VISIBLE_DEVICES=1
+torch_lib_dir=$(echo "${venv_dir}"/lib/python*/site-packages/torch/lib)
+if [[ -d "${torch_lib_dir}" ]]; then
+    export LD_LIBRARY_PATH="${torch_lib_dir}:${LD_LIBRARY_PATH:-}"
+fi
+export PYTHONPATH="${code_dir}/lerobot/src:${PYTHONPATH:-}"
+
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
 NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 
 # print current time
@@ -28,7 +33,7 @@ export PORT=$((21000 + $RANDOM % 30000))
 
 MASTER_PORT=10239 # use 5 digits ports
 
-export LAUNCHER="accelerate launch --num_processes=$NUM_GPUS --main_process_port=$PORT"
+export LAUNCHER="${python_bin} -m accelerate.commands.launch --num_processes=$NUM_GPUS --main_process_port=$PORT"
 
 export SCRIPT="${code_dir}/train_qact.py"
 export SCRIPT_ARGS="--config ${config_path}/config_qact.yml --seed $MASTER_PORT"

@@ -19,6 +19,25 @@ from tqdm import tqdm
 from normalize import RunningStats
 from wall_x.data.utils import KEY_MAPPINGS
 
+DOF_ORDER_MAPPING = {
+    "zju_data_20260209": [
+        "right_waist",
+        "right_shoulder",
+        "right_elbow",
+        "right_forearm_roll",
+        "right_wrist_angle",
+        "right_wrist_rotate",
+        "right_gripper",
+        "left_waist",
+        "left_shoulder",
+        "left_elbow",
+        "left_forearm_roll",
+        "left_wrist_angle",
+        "left_wrist_rotate",
+        "left_gripper",
+    ],
+}
+
 
 def _to_serializable(stats):
     return {
@@ -27,6 +46,31 @@ def _to_serializable(stats):
         "q01": stats.q01.tolist(),
         "q99": stats.q99.tolist(),
     }
+
+
+def _build_action_statistic_dof(repo_id: str, action_stats, state_stats) -> dict:
+    dof_names = DOF_ORDER_MAPPING.get(repo_id)
+    if dof_names is None:
+        return {}
+
+    robot_stats = {}
+    action_q01 = action_stats.q01.tolist()
+    action_q99 = action_stats.q99.tolist()
+    state_q01 = state_stats.q01.tolist()
+    state_q99 = state_stats.q99.tolist()
+
+    # The official trainer loads one action-statistic dictionary for both action and
+    # proprioception. For this dataset the joint ordering is identical in state/action,
+    # so we use a merged q01-q99 envelope that safely covers both distributions.
+    for idx, name in enumerate(dof_names):
+        lower = min(action_q01[idx], state_q01[idx])
+        upper = max(action_q99[idx], state_q99[idx])
+        robot_stats[name] = {
+            "min": [lower],
+            "delta": [upper - lower],
+        }
+
+    return {repo_id: robot_stats}
 
 
 def _iter_parquet_files(root: Path):
@@ -58,13 +102,17 @@ def compute_norm_stats(repo_id: str, root: str | None, output_path: str) -> Path
         running[action_key].update(action_array)
         running[state_key].update(state_array)
 
+    action_stats = running[action_key].get_statistics()
+    state_stats = running[state_key].get_statistics()
+
     payload = {
         "repo_id": repo_id,
         "norm_stats": {
-            action_key: _to_serializable(running[action_key].get_statistics()),
-            state_key: _to_serializable(running[state_key].get_statistics()),
+            action_key: _to_serializable(action_stats),
+            state_key: _to_serializable(state_stats),
         },
     }
+    payload.update(_build_action_statistic_dof(repo_id, action_stats, state_stats))
 
     output_file = Path(output_path)
     output_file.parent.mkdir(parents=True, exist_ok=True)

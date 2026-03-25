@@ -5,9 +5,9 @@
 log_name: "wall_oss_flow_zju_data_20260209"
 log_project: "vla_training"
 model_type: wall-oss
-pretrained_wallx_path: "/mnt/pfs/pg4hw0/niantian/model_weights/wall-oss-flow"
-processor_path: "/mnt/pfs/pg4hw0/niantian/model_weights/wall-oss-flow"
-save_path: "/mnt/pfs/pg4hw0/niantian/wall-x/workspace/outputs/wall_oss_flow_ft_zju_data_20260209"
+pretrained_wallx_path: "/mnt/pfs/pg4hw0/niantian/model_weights/wall-oss-flow-zju14"
+processor_path: "/mnt/pfs/pg4hw0/niantian/model_weights/wall-oss-flow-zju14"
+save_path: "/mnt/pfs/pg4hw0/niantian/wall-x_bak/workspace/outputs/wall_oss_flow_ft_zju_data_20260209"
 use_fast_tokenizer: False                       # True: train FAST, False: train Flow
 action_tokenizer_path: "/path/to/fast/"         # Must set if use_fast_tokenizer is true
 
@@ -72,7 +72,7 @@ agent_pos_config:
 #   ckpt: "/path/to/resume_model/"
 #   load_ckpt_only: true
 
-norm_stats_path: "/mnt/pfs/pg4hw0/niantian/wall-x/workspace/lerobot_example/stats/zju_data_20260209_norm_stats.json"
+norm_stats_path: "/mnt/pfs/pg4hw0/niantian/wall-x_bak/workspace/lerobot_example/stats/zju_data_20260209_norm_stats.json"
 
 enable_customized_robot_config: true
 customized_robot_config:

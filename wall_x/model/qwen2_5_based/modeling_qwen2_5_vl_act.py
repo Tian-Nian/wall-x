@@ -921,23 +921,6 @@ class Qwen2_5_VLMoEForAction(
             state_dict.update(sd)
         if embed_tokens_size != len(processor.tokenizer):
             model.resize_token_embeddings(embed_tokens_size)
-        model_state_dict = model.state_dict()
-        skipped_shape_mismatch = []
-        for key in list(state_dict.keys()):
-            if key not in model_state_dict:
-                continue
-            if state_dict[key].shape != model_state_dict[key].shape:
-                skipped_shape_mismatch.append(
-                    (key, tuple(state_dict[key].shape), tuple(model_state_dict[key].shape))
-                )
-                del state_dict[key]
-
-        for key, ckpt_shape, model_shape in skipped_shape_mismatch:
-            print(
-                f"skip loading weight {key} due to shape mismatch: "
-                f"checkpoint {ckpt_shape} vs model {model_shape}"
-            )
-
         model.load_state_dict(state_dict, strict=False)
 
         return model

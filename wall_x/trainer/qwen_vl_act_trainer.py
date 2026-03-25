@@ -28,7 +28,6 @@ from wall_x.data.load_lerobot_dataset import (
     get_data_configs,
     load_lerobot_data,
 )
-from wall_x.data.utils import update_action_statistics
 import copy
 
 
@@ -232,26 +231,7 @@ class QwenVlAct_Trainer:
             self.print_rank0(
                 f"loading customized action statistic dof from {self.config['norm_stats_path']}"
             )
-            loaded_stats = json.load(open(self.config["norm_stats_path"], "r"))
-            if "norm_stats" in loaded_stats:
-                action_statistic_dof = {}
-                customized_robot_config = self.config.get("customized_robot_config", {})
-                update_action_statistics(
-                    action_statistic_dof=action_statistic_dof,
-                    norm_stats_path=self.config["norm_stats_path"],
-                    repo_id=self.config["data"]["lerobot_config"]["repo_id"],
-                    dof_config=self.config["dof_config"],
-                    agent_pos_config=self.config["agent_pos_config"],
-                    robot_name=customized_robot_config.get("name"),
-                    customized_dof_config=customized_robot_config.get(
-                        "customized_dof_config"
-                    ),
-                    customized_agent_pos_config=customized_robot_config.get(
-                        "customized_agent_pos_config"
-                    ),
-                )
-            else:
-                action_statistic_dof = loaded_stats
+            action_statistic_dof = json.load(open(self.config["norm_stats_path"], "r"))
         else:
             self.print_rank0(
                 "loading default action statistic dof from default_action_statistic_dof"

@@ -3,16 +3,16 @@ import json
 import pathlib
 
 import numpy as np
+import numpydantic
 import pydantic
-from typing import Any
 
 
 @pydantic.dataclasses.dataclass
 class NormStats:
-    mean: Any
-    std: Any
-    q01: Any | None = None  # 1st quantile
-    q99: Any | None = None  # 99th quantile
+    mean: numpydantic.NDArray
+    std: numpydantic.NDArray
+    q01: numpydantic.NDArray | None = None  # 1st quantile
+    q99: numpydantic.NDArray | None = None  # 99th quantile
 
 
 class RunningStats:
