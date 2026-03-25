@@ -8,8 +8,21 @@ transformer and MoE (Mixture of Experts) operations, including:
 - RoPE (Rotary Position Embedding) operations
 """
 
+import ctypes
+from pathlib import Path
 import torch
 from typing import Tuple, Optional
+
+
+def _preload_torch_libraries() -> None:
+    torch_lib_dir = Path(torch.__file__).resolve().parent / "lib"
+    for lib_name in ("libc10.so", "libtorch_cpu.so", "libtorch_cuda.so", "libtorch_python.so"):
+        lib_path = torch_lib_dir / lib_name
+        if lib_path.exists():
+            ctypes.CDLL(str(lib_path), mode=ctypes.RTLD_GLOBAL)
+
+
+_preload_torch_libraries()
 import wallx_csrc as backend
 
 

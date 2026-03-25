@@ -1,182 +1,106 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
-import logging
-from collections import defaultdict
+import sys
 from pathlib import Path
-from typing import Dict, List
-from tqdm import tqdm
 
 import numpy as np
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+LEROBOT_SRC = REPO_ROOT / "lerobot" / "src"
+if str(LEROBOT_SRC) not in sys.path:
+    sys.path.insert(0, str(LEROBOT_SRC))
 
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
+import pyarrow.parquet as pq
+from tqdm import tqdm
 
-
-def write_json(path: Path, data: Dict) -> None:
-    path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
-
-
-def compute_action_statistics(
-    action_data_by_robot: Dict[str, Dict[str, List]]
-) -> Dict[str, Dict[str, Dict]]:
-    """
-    Compute statistics (min, q01, q99, max) for each action type and dimension.
-
-    Args:
-        action_data_by_robot: Dict[robot_id][action_type] -> list of arrays/lists
-
-    Returns:
-        Dict[robot_id][action_type] -> {
-            "min": [min for each dim],
-            "q01": [quantile 1% for each dim],
-            "q99": [quantile 99% for each dim],
-            "max": [max for each dim],
-            "delta": [max - min for each dim]
-            "delta_q99_q01": [q99 - q01 for each dim]
-        }
-    """
-    stats = {}
-
-    for robot_id, action_data in action_data_by_robot.items():
-        stats[robot_id] = {}
-
-        for action_type, values_list in action_data.items():
-            if not values_list:
-                continue
-
-            # Convert to numpy array: shape (num_samples, num_dims)
-            try:
-                values_array = np.array(values_list)
-                if values_array.size == 0:
-                    continue
-
-                # Handle both 1D and 2D cases
-                if values_array.ndim == 1:
-                    values_array = values_array.reshape(-1, 1)
-                elif values_array.ndim == 2:
-                    pass
-                else:
-                    logging.warning(
-                        f"Unexpected shape for {robot_id}/{action_type}: {values_array.shape}"
-                    )
-                    continue
-
-                # Compute statistics for each dimension
-                min_vals = np.min(values_array, axis=0).tolist()
-                max_vals = np.max(values_array, axis=0).tolist()
-                q01_vals = np.quantile(values_array, 0.01, axis=0).tolist()
-                q99_vals = np.quantile(values_array, 0.99, axis=0).tolist()
-                delta_vals = (np.array(max_vals) - np.array(min_vals)).tolist()
-                delta_q99_q01_vals = (np.array(q99_vals) - np.array(q01_vals)).tolist()
-
-                stats[robot_id][action_type] = {
-                    "min": min_vals,
-                    "q01": q01_vals,
-                    "q99": q99_vals,
-                    "max": max_vals,
-                    "delta": delta_vals,
-                    "delta_q99_q01": delta_q99_q01_vals,
-                }
-
-            except Exception as e:
-                logging.warning(
-                    f"Error computing statistics for {robot_id}/{action_type}: {e}"
-                )
-                continue
-
-    return stats
+from normalize import RunningStats
+from wall_x.data.utils import KEY_MAPPINGS
 
 
-def load_lerobot_dataset(
-    repo_id: str,
-    trajectory_keys: Dict,
-    base_dir: Path,
-) -> None:
-
-    # Load local or remote dataset
-    dataset = LeRobotDataset(base_dir)
-
-    # Iterate through all data
-    frames: Dict[str, Dict[str, List]] = defaultdict(lambda: defaultdict(list))
-
-    all_features = dataset.features
-    non_image_columns = [col for col in all_features if "image" not in col]
-
-    print(f"Reading the following fields:{non_image_columns}")
-    fast_dataset = dataset.hf_dataset.select_columns(non_image_columns)
-
-    for i in tqdm(range(len(fast_dataset))):
-        sample = fast_dataset[i]
-        action = sample["action"]  # torch.Tensor
-        propri = sample["observation.state"]
-
-        for key, action_keys in trajectory_keys.items():
-            for action_key, action_range in action_keys.items():
-                if key == "action":
-                    frames[repo_id][action_key].append(
-                        action[action_range[0] : action_range[1]].numpy().tolist()
-                    )
-                else:
-                    frames[repo_id][action_key].append(
-                        propri[action_range[0] : action_range[1]].numpy().tolist()
-                    )
-
-    return frames
+def _to_serializable(stats):
+    return {
+        "mean": stats.mean.tolist(),
+        "std": stats.std.tolist(),
+        "q01": stats.q01.tolist(),
+        "q99": stats.q99.tolist(),
+    }
 
 
-def compute_action_normalizer(
-    repo_id: str, trajectory_keys: Dict, base_dir: Path, output_dir: Path
-) -> None:
-    """
-    Compute action normalizer statistics for all robot_ids.
-    """
-    logging.info("Starting action normalizer computation...")
-
-    frames = load_lerobot_dataset(repo_id, trajectory_keys, base_dir)
-
-    # Compute statistics
-    stats = compute_action_statistics(frames)
-
-    # Save statistics for each robot_id
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # for robot_id, robot_stats in stats.items():
-    #     output_file = output_dir / f"{robot_id}_action_stats.json"
-    #     write_json(output_file, robot_stats)
-    #     logging.info(f"Saved action statistics for {robot_id} to {output_file}")
-
-    # Also save a combined file
-    combined_output = output_dir / "all_robots_action_stats.json"
-    write_json(combined_output, stats)
-    logging.info(f"Saved combined action statistics to {combined_output}")
+def _iter_parquet_files(root: Path):
+    data_dir = root / "data"
+    if not data_dir.exists():
+        raise FileNotFoundError(f"LeRobot data directory not found: {data_dir}")
+    return sorted(data_dir.rglob("episode_*.parquet"))
 
 
-def main() -> None:
+def compute_norm_stats(repo_id: str, root: str | None, output_path: str) -> Path:
+    action_key = KEY_MAPPINGS[repo_id]["action"]
+    state_key = KEY_MAPPINGS[repo_id]["state"]
 
-    repo_id = "xxx"  # your dataset name
-    data_root_path = "/path/to/lerobot/dataset"
-    output_stats_dir = "/path/to/save/action_stats"
-    trajectory_keys = {  # your dataset keys
-        "propri": {
-            "follow_right_ee_cartesian_pos": [0, 3],
-            "follow_right_ee_rotation": [3, 6],
-            "follow_right_gripper": [6, 7],
-        },
-        "action": {
-            "master_right_ee_cartesian_pos": [0, 3],
-            "master_right_ee_rotation": [3, 6],
-            "master_right_gripper": [6, 7],
+    running = {
+        action_key: RunningStats(),
+        state_key: RunningStats(),
+    }
+
+    if root is None:
+        raise ValueError("`--root` is required for local LeRobot parquet statistics.")
+
+    root_path = Path(root)
+    parquet_files = _iter_parquet_files(root_path)
+
+    for parquet_file in tqdm(parquet_files, desc=f"compute stats for {repo_id}"):
+        table = pq.read_table(parquet_file, columns=[action_key, state_key])
+        action_array = np.asarray(table[action_key].to_pylist(), dtype=np.float32)
+        state_array = np.asarray(table[state_key].to_pylist(), dtype=np.float32)
+        running[action_key].update(action_array)
+        running[state_key].update(state_array)
+
+    payload = {
+        "repo_id": repo_id,
+        "norm_stats": {
+            action_key: _to_serializable(running[action_key].get_statistics()),
+            state_key: _to_serializable(running[state_key].get_statistics()),
         },
     }
 
-    compute_action_normalizer(
-        repo_id, trajectory_keys, data_root_path, output_stats_dir
+    output_file = Path(output_path)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
-    logging.info("Action normalizer computation completed.")
+    return output_file
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Compute WALL-X compatible norm_stats.json for a LeRobot dataset."
+    )
+    parser.add_argument(
+        "--repo-id",
+        default="lerobot/aloha_mobile_cabinet",
+        help="LeRobot dataset repo id.",
+    )
+    parser.add_argument(
+        "--root",
+        default=None,
+        help="Local LeRobot root. If omitted, LeRobot defaults are used.",
+    )
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output json path, e.g. /abs/path/norm_stats.json",
+    )
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    output_path = compute_norm_stats(args.repo_id, args.root, args.output)
+    print(f"Saved norm stats to {output_path}")
 
 
 if __name__ == "__main__":
