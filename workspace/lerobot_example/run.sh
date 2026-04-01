@@ -25,7 +25,7 @@ fi
 export PYTHONPATH="${code_dir}/lerobot/src:${PYTHONPATH:-}"
 
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-1}"
-NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
+NUM_GPUS=$(echo "${CUDA_VISIBLE_DEVICES}" | tr ',' '\n' | wc -l)
 
 # print current time
 echo "[current time: $(date +'%Y-%m-%d %H:%M:%S')]"

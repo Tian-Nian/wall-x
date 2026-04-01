@@ -35,6 +35,15 @@ KEY_MAPPINGS = {
         "state": "observation.state",
         "action": "action",
     },
+    "put_back_block-demo_clean_200": {
+        "camera": {
+            "observation.images.cam_high": "face_view",
+            "observation.images.cam_left_wrist": "left_wrist_view",
+            "observation.images.cam_right_wrist": "right_wrist_view",
+        },
+        "state": "observation.state",
+        "action": "action",
+    },
     "physical-intelligence/libero": {
         "camera": {
             "image": "face_view",
@@ -99,6 +108,7 @@ MULTIMODAL_DATASET_NAMES = [
 FREQUENCY_MAPPING = {
     "x2_normal": 32,
     "zju_data_20260209": 50,
+    "put_back_block-demo_clean_200": 50,
     "fractal": 5,
     "bridge_data_v2": 5,
     "droid": 15,

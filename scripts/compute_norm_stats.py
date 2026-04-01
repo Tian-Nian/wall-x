@@ -36,6 +36,22 @@ DOF_ORDER_MAPPING = {
         "left_wrist_rotate",
         "left_gripper",
     ],
+    "put_back_block-demo_clean_200": [
+        "right_waist",
+        "right_shoulder",
+        "right_elbow",
+        "right_forearm_roll",
+        "right_wrist_angle",
+        "right_wrist_rotate",
+        "right_gripper",
+        "left_waist",
+        "left_shoulder",
+        "left_elbow",
+        "left_forearm_roll",
+        "left_wrist_angle",
+        "left_wrist_rotate",
+        "left_gripper",
+    ],
 }
 
 
