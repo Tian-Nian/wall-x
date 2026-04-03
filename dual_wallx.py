@@ -14,9 +14,14 @@ REPO_ROOT = Path(__file__).resolve().parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from wall_x.model.action_head import Normalizer
-from wall_x.model.model_utils import load_wallx_processors
-from wall_x.model.qwen2_5_based.modeling_qwen2_5_vl_act import Qwen2_5_VLMoEForAction
+if __package__:
+    from .wall_x.model.action_head import Normalizer
+    from .wall_x.model.model_utils import load_wallx_processors
+    from .wall_x.model.qwen2_5_based.modeling_qwen2_5_vl_act import Qwen2_5_VLMoEForAction
+else:
+    from wall_x.model.action_head import Normalizer
+    from wall_x.model.model_utils import load_wallx_processors
+    from wall_x.model.qwen2_5_based.modeling_qwen2_5_vl_act import Qwen2_5_VLMoEForAction
 
 
 DEFAULT_CONFIG_PATH = REPO_ROOT / "workspace" / "lerobot_example" / "config_qact.yml"
@@ -53,6 +58,20 @@ def _resolve_train_config_path(train_config_name):
             if path.exists():
                 return path.resolve()
     return DEFAULT_CONFIG_PATH.resolve()
+
+
+def _resolve_model_path(train_config, deploy_cfg):
+    configured_model_path = deploy_cfg.get("model_path")
+    if configured_model_path:
+        return str(Path(configured_model_path).expanduser().resolve())
+
+    save_path = train_config.get("save_path")
+    if save_path:
+        deploy_path = Path(save_path).expanduser() / "deploy"
+        if deploy_path.exists():
+            return str(deploy_path.resolve())
+
+    return str(Path(train_config["pretrained_wallx_path"]).expanduser().resolve())
 
 
 def _load_train_config(config_path):
@@ -152,7 +171,7 @@ def _to_wallx_state(openpi_state):
     return state[OPENPI_TO_WALLX_ORDER]
 
 
-def _to_openpi_action(wallx_action):
+def _to_base_action(wallx_action):
     action = np.asarray(wallx_action, dtype=np.float32).reshape(-1)
     if action.shape[0] != OPENPI_TO_WALLX_ORDER.shape[0]:
         raise ValueError(f"Expected 14-dim action, got shape {action.shape}")
@@ -160,10 +179,11 @@ def _to_openpi_action(wallx_action):
 
 
 class WallXDualPolicy:
-    def __init__(self, deploy_cfg):
+    def __init__(self, deploy_cfg=None):
+        deploy_cfg = deploy_cfg or {}
         self.config_path = _resolve_train_config_path(deploy_cfg.get("train_config_name"))
         self.train_config = _load_train_config(self.config_path)
-        self.model_path = deploy_cfg.get("model_path") or self.train_config["pretrained_wallx_path"]
+        self.model_path = _resolve_model_path(self.train_config, deploy_cfg)
         self.dataset_name = _infer_dataset_name(self.train_config, deploy_cfg)
         self.pred_horizon = int(self.train_config["data"].get("action_horizon", 32))
         self.action_dim = _sum_dims(self.train_config["dof_config"])
@@ -171,11 +191,12 @@ class WallXDualPolicy:
         self.camera_key = deploy_cfg.get("camera_key", DEFAULT_CAMERA_KEY)
         self.predict_mode = deploy_cfg.get("predict_mode", "diffusion")
         self.device = deploy_cfg.get("device") or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.max_length = int(deploy_cfg.get("max_length", self.train_config.get("max_length", 2048)))
+        self.max_length = int(deploy_cfg.get("max_length", self.train_config.get("max_length", 768)))
         self.observation_window = None
         self.instruction = None
 
         print(f"Use config: {self.config_path}")
+        print(f"Use model path: {self.model_path}")
         self.normalizer_action, self.normalizer_propri = _build_normalizers(
             self.train_config, self.model_path
         )
@@ -200,22 +221,15 @@ class WallXDualPolicy:
     def set_language(self, instruction):
         self.instruction = instruction
 
-    def update_obs(self, obs):
-        state = np.concatenate(
-            [
-                np.asarray(obs[0]["left_arm"]["joint"], dtype=np.float32).reshape(-1),
-                np.asarray(obs[0]["left_arm"]["gripper"], dtype=np.float32).reshape(-1),
-                np.asarray(obs[0]["right_arm"]["joint"], dtype=np.float32).reshape(-1),
-                np.asarray(obs[0]["right_arm"]["gripper"], dtype=np.float32).reshape(-1),
-            ]
-        )
+    def update_obs(self, input_rgb_arr, input_state):
+        state = input_state
 
         self.observation_window = {
             "state": state,
             "images": {
-                "cam_high": _decode_image(obs[1]["cam_head"]["color"]),
-                "cam_left_wrist": _decode_image(obs[1]["cam_left_wrist"]["color"]),
-                "cam_right_wrist": _decode_image(obs[1]["cam_right_wrist"]["color"]),
+                "cam_high": _decode_image(input_rgb_arr[0]),
+                "cam_right_wrist": _decode_image(input_rgb_arr[1]),
+                "cam_left_wrist": _decode_image(input_rgb_arr[2]),
             },
             "prompt": self.instruction,
         }
@@ -271,32 +285,17 @@ class WallXDualPolicy:
             )
 
         predicted_actions = predicted_actions[0].detach().cpu().to(torch.float32).numpy()
-        return np.stack([_to_openpi_action(action) for action in predicted_actions], axis=0)
+        return np.stack([_to_base_action(action) for action in predicted_actions], axis=0)
 
     def get_action(self, obs=None):
         if obs is not None:
             self.update_obs(obs)
 
         actions = self.infer()
-        ret_actions = []
-        for action in actions:
-            ret_actions.append(
-                {
-                    "arm": {
-                        "left_arm": {
-                            "joint": action[:6],
-                            "gripper": action[6],
-                        },
-                        "right_arm": {
-                            "joint": action[7:13],
-                            "gripper": action[13],
-                        },
-                    }
-                }
-            )
-        return ret_actions
 
-    def reset(self):
+        return actions
+
+    def reset_obsrvationwindows(self):
         self.observation_window = None
         self.instruction = None
         print("successfully reset observation_window and instruction")

@@ -1,0 +1,16 @@
+# Basic experiment configuration
+policy_name: wall_x
+task_name: null
+task_config: null
+ckpt_setting: null
+seed: null
+instruction_type: unseen
+train_config_name: /mnt/pfs/pg4hw0/niantian/RMBench/policy/wall_x/workspace/lerobot_example/config_qact.yml
+model_path: /mnt/pfs/pg4hw0/niantian/wall-x_bak/workspace/outputs/wall_oss_flow_ft_put_back_block-demo_clean_200/deploy_step2/
+max_length: 768
+predict_mode: diffusion
+device: cuda
+
+expert_data_num: null
+checkpoint_num: 600
+head_camera_type: D435

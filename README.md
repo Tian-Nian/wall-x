@@ -47,7 +47,8 @@ conda activate wallx
 Install requirements:
 ```bash
 pip install -r requirements.txt
-MAX_JOBS=4 pip install flash-attn==2.7.4.post1 --no-build-isolation
+mkdir -p .pip-tmp .pip-cache
+TMPDIR=$PWD/.pip-tmp PIP_CACHE_DIR=$PWD/.pip-cache MAX_JOBS=4 pip install flash-attn==2.7.4.post1 --no-build-isolation
 ```
 
 Install lerobot:
@@ -61,7 +62,7 @@ pip install -e .
 Install wall_x:
 ```bash
 git submodule update --init --recursive
-MAX_JOBS=4 pip install --no-build-isolation --verbose -e .
+TMPDIR=$PWD/.pip-tmp PIP_CACHE_DIR=$PWD/.pip-cache MAX_JOBS=4 pip install --no-build-isolation --verbose -e .
 ```
 
 ## Training
